@@ -1,0 +1,12 @@
+{
+    "Food and Dining": 1,
+    "Transport": 2,
+    "Utilities": 3,
+    "Groceries": 4,
+    "Shopping": 5,
+    "Entertainment": 6,
+    "Uncategorized": 7,
+    "Personal Transfer": 8,
+    "Stationaries": 9,
+    "Education": 10
+}
