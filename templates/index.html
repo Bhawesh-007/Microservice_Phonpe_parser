@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Statement</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+
+    <div class="max-w-4xl mx-auto pt-12 px-4">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">AI Statement Analyzer</h1>
+            <p class="text-gray-500 mt-2">Upload your PhonePe statement to automatically categorize your expenses.</p>
+        </div>
+
+        <div id="upload-section" class="bg-white p-8 rounded-xl shadow-sm border border-gray-100 text-center">
+            <input type="file" id="file-input" accept=".pdf" class="hidden" />
+            <button onclick="document.getElementById('file-input').click()"
+                class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                Select PDF File
+            </button>
+            <p id="file-name" class="mt-4 text-sm text-gray-500"></p>
+            <button id="process-btn" onclick="uploadFile()"
+                class="hidden mt-4 mx-auto px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors">
+                Analyze Transactions
+            </button>
+        </div>
+
+        <div id="loading" class="hidden text-center mt-12">
+            <div
+                class="inline-block animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mb-4">
+            </div>
+            <p class="text-gray-600 font-medium animate-pulse">AI is reading your statement...</p>
+        </div>
+
+        <div id="results-section"
+            class="hidden mt-8 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+                <h2 class="text-xl font-bold">Extracted Data</h2>
+                <span id="transaction-count"
+                    class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded"></span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3">Date</th>
+                            <th class="px-6 py-3">Merchant</th>
+                            <th class="px-6 py-3">Amount (₹)</th>
+                            <th class="px-6 py-3">AI Category</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-gray-100">
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-6 bg-gray-50 text-right border-t border-gray-100">
+                <button onclick="sendToSpringBoot()"
+                    class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">
+                    Save to My Account
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Grab the userId injected by FastAPI from the URL parameters
+        const userId = "{{ userId }}";
+        let parsedData = [];
+
+        // File Selection Listener
+        document.getElementById('file-input').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('file-name').innerText = "Selected: " + file.name;
+                document.getElementById('process-btn').classList.remove('hidden');
+            }
+        });
+
+        // Step 1: Send to Python Microservice
+        async function uploadFile() {
+            const fileInput = document.getElementById('file-input');
+            if (!fileInput.files[0]) return;
+
+            // UI State change
+            document.getElementById('upload-section').classList.add('hidden');
+            document.getElementById('loading').classList.remove('hidden');
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                // Call the FastAPI endpoint you already built
+                const response = await fetch('/parser/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    parsedData = result.data;
+                    renderTable(parsedData);
+                }
+            } catch (error) {
+                alert("Error processing file.");
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        // Step 2: Render Data on UI
+        function renderTable(data) {
+            document.getElementById('results-section').classList.remove('hidden');
+            document.getElementById('transaction-count').innerText = `${data.length} Transactions Found`;
+
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = ''; // Clear previous
+
+            data.forEach(txn => {
+                // Format the timestamp cleanly
+                const dateObj = new Date(txn.timestamp);
+                const dateString = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                const row = `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4">${dateString}</td>
+                        <td class="px-6 py-4 font-medium text-gray-900">${txn.note}</td>
+                        <td class="px-6 py-4 font-bold text-red-600">-₹${txn.amount}</td>
+                        <td class="px-6 py-4">
+                            <span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium border border-gray-200">
+                                ${txn.categoryName}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+        }
+
+        // Step 3: Handoff to Spring Boot Main App
+        async function sendToSpringBoot() {
+            if (!userId || userId === "None") {
+                alert("Error: No User ID found. Are you logged in?");
+                return;
+            }
+
+            // The payload combines the user ID and the array of transactions
+            const payload = {
+                accountId: userId,
+                transactions: parsedData
+            };
+
+            try {
+                // Change this URL to point to your actual Spring Boot server endpoint
+                const springBootUrl = 'http://localhost:8080/api/expenses/bulk-upload';
+
+                const response = await fetch(springBootUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    alert("Success! Transactions saved.");
+                    // Redirect back to the main app dashboard
+                    window.location.href = `http://localhost:8080/dashboard?userId=${userId}`;
+                } else {
+                    alert("Failed to save to main app database.");
+                }
+            } catch (error) {
+                console.error("Webhook error:", error);
+                alert("Could not connect to Main App server.");
+            }
+        }
+    </script>
+</body>
+
+</html>
