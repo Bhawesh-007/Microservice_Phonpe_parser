@@ -10,7 +10,7 @@
 
 <body class="bg-gray-50 min-h-screen font-sans text-gray-800">
 
-    <div class="max-w-4xl mx-auto pt-12 px-4">
+    <div class="max-w-5xl mx-auto pt-12 px-4 pb-20">
         <div class="text-center mb-8">
             <h1 class="text-3xl font-bold text-gray-900">AI Statement Analyzer</h1>
             <p class="text-gray-500 mt-2">Upload your PhonePe statement to automatically categorize your expenses.</p>
@@ -39,7 +39,7 @@
         <div id="results-section"
             class="hidden mt-8 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div class="p-6 border-b border-gray-100 flex justify-between items-center">
-                <h2 class="text-xl font-bold">Extracted Data</h2>
+                <h2 class="text-xl font-bold">Review & Edit Data</h2>
                 <span id="transaction-count"
                     class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded"></span>
             </div>
@@ -50,7 +50,7 @@
                             <th class="px-6 py-3">Date</th>
                             <th class="px-6 py-3">Merchant</th>
                             <th class="px-6 py-3">Amount (₹)</th>
-                            <th class="px-6 py-3">AI Category</th>
+                            <th class="px-6 py-3">Category (Editable)</th>
                         </tr>
                     </thead>
                     <tbody id="table-body" class="divide-y divide-gray-100">
@@ -58,17 +58,18 @@
                 </table>
             </div>
             <div class="p-6 bg-gray-50 text-right border-t border-gray-100">
-                <button onclick="sendToSpringBoot()"
-                    class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">
-                    Save to My Account
+                <button onclick="downloadJSON()"
+                    class="px-6 py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium shadow-md transition">
+                    Approve & Download JSON
                 </button>
             </div>
         </div>
     </div>
 
     <script>
-        // Grab the userId injected by FastAPI from the URL parameters
-        const userId = "{{ userId }}";
+        // Get the categories mapped directly from Python!
+        // We use Jinja's tojson filter to make it a valid JavaScript object.
+        const categoriesMap = {{ categories | tojson | safe }};
         let parsedData = [];
 
         // File Selection Listener
@@ -80,12 +81,11 @@
             }
         });
 
-        // Step 1: Send to Python Microservice
+        // Send PDF to Python Microservice
         async function uploadFile() {
             const fileInput = document.getElementById('file-input');
             if (!fileInput.files[0]) return;
 
-            // UI State change
             document.getElementById('upload-section').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
 
@@ -93,7 +93,6 @@
             formData.append("file", fileInput.files[0]);
 
             try {
-                // Call the FastAPI endpoint you already built
                 const response = await fetch('/parser/process', {
                     method: 'POST',
                     body: formData
@@ -104,36 +103,47 @@
                 if (result.status === "success") {
                     parsedData = result.data;
                     renderTable(parsedData);
+                } else {
+                    alert("Error: " + (result.detail || "Something went wrong"));
                 }
             } catch (error) {
-                alert("Error processing file.");
+                console.error(error);
+                alert("Server Error. Check your Python terminal for the crash trace.");
             } finally {
                 document.getElementById('loading').classList.add('hidden');
             }
         }
 
-        // Step 2: Render Data on UI
+        // Render Data into Editable Table
         function renderTable(data) {
             document.getElementById('results-section').classList.remove('hidden');
             document.getElementById('transaction-count').innerText = `${data.length} Transactions Found`;
 
             const tbody = document.getElementById('table-body');
-            tbody.innerHTML = ''; // Clear previous
+            tbody.innerHTML = '';
 
-            data.forEach(txn => {
-                // Format the timestamp cleanly
+            data.forEach((txn, index) => {
                 const dateObj = new Date(txn.timestamp);
                 const dateString = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+                // Build the Dropdown options based on the Python dictionary
+                let dropdownOptions = '';
+                for (const [catName, catId] of Object.entries(categoriesMap)) {
+                    // Check if this option matches what the AI guessed
+                    const isSelected = txn.categoryId === catId ? "selected" : "";
+                    dropdownOptions += `<option value="${catId}" ${isSelected}>${catName}</option>`;
+                }
+
                 const row = `
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-6 py-4">${dateString}</td>
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="px-6 py-4 whitespace-nowrap">${dateString}</td>
                         <td class="px-6 py-4 font-medium text-gray-900">${txn.note}</td>
                         <td class="px-6 py-4 font-bold text-red-600">-₹${txn.amount}</td>
-                        <td class="px-6 py-4">
-                            <span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium border border-gray-200">
-                                ${txn.categoryName}
-                            </span>
+                        <td class="px-6 py-4 w-48">
+                            <select class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 outline-none" 
+                                    onchange="updateCategory(${index}, this.value, this.options[this.selectedIndex].text)">
+                                ${dropdownOptions}
+                            </select>
                         </td>
                     </tr>
                 `;
@@ -141,40 +151,34 @@
             });
         }
 
-        // Step 3: Handoff to Spring Boot Main App
-        async function sendToSpringBoot() {
-            if (!userId || userId === "None") {
-                alert("Error: No User ID found. Are you logged in?");
+        // Update the internal data array when user changes the dropdown
+        function updateCategory(index, newId, newName) {
+            parsedData[index].categoryId = parseInt(newId);
+            parsedData[index].categoryName = newName;
+        }
+
+        // Create a downloadable JSON file containing the approved data
+        function downloadJSON() {
+            if (parsedData.length === 0) {
+                alert("No data to download!");
                 return;
             }
 
-            // The payload combines the user ID and the array of transactions
-            const payload = {
-                accountId: userId,
-                transactions: parsedData
-            };
+            // Convert our modified data array back into a pretty string
+            const dataStr = JSON.stringify({ "status": "approved", "data": parsedData }, null, 2);
 
-            try {
-                // Change this URL to point to your actual Spring Boot server endpoint
-                const springBootUrl = 'http://localhost:8080/api/expenses/bulk-upload';
+            // Create a Blob (a chunk of file memory)
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
 
-                const response = await fetch(springBootUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (response.ok) {
-                    alert("Success! Transactions saved.");
-                    // Redirect back to the main app dashboard
-                    window.location.href = `http://localhost:8080/dashboard?userId=${userId}`;
-                } else {
-                    alert("Failed to save to main app database.");
-                }
-            } catch (error) {
-                console.error("Webhook error:", error);
-                alert("Could not connect to Main App server.");
-            }
+            // Create an invisible anchor tag, click it, and delete it
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `approved_expenses_${new Date().getTime()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
     </script>
 </body>

@@ -17,7 +17,14 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request, userId: str = None):
     # Renders the HTML page and passes the userId into the frontend
-    return templates.TemplateResponse(request=request, name="index.html", context={"userId": userId})
+    return templates.TemplateResponse(
+        request = request,
+        name = "index.html",
+        context = {
+            "userId": userId,
+            "categories" : CATEGORY_ID_MAP,
+        }
+    )
 @app.post("/parser/process")
 async def process_statement(file: UploadFile = File(...)):
     if not file.filename.endswith('.pdf'):
