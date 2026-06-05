@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload Statement</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/trie.js"></script>
 </head>
 
 <body class="bg-gray-50 min-h-screen font-sans text-gray-800">
@@ -71,6 +72,10 @@
         // We use Jinja's tojson filter to make it a valid JavaScript object.
         const categoriesMap = {{ categories | tojson | safe }};
         let parsedData = [];
+        const categoryTrie = new Trie();
+        for (const [catName, catId] of Object.entries(categoriesMap)) {
+            categoryTrie.insert(catName, catId);
+        }
 
         // File Selection Listener
         document.getElementById('file-input').addEventListener('change', function (e) {
@@ -139,11 +144,18 @@
                         <td class="px-6 py-4 whitespace-nowrap">${dateString}</td>
                         <td class="px-6 py-4 font-medium text-gray-900">${txn.note}</td>
                         <td class="px-6 py-4 font-bold text-red-600">-₹${txn.amount}</td>
-                        <td class="px-6 py-4 w-48">
-                            <select class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 outline-none" 
-                                    onchange="updateCategory(${index}, this.value, this.options[this.selectedIndex].text)">
-                                ${dropdownOptions}
-                            </select>
+                        <td class="px-6 py-4 w-64 relative">
+                            <input type="text" 
+                                id="cat-input-${index}"
+                                value="${txn.categoryName}" 
+                                class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 w-full p-2 outline-none"
+                                onkeyup="handleCategorySearch(${index}, this.value)"
+                                onfocus="handleCategorySearch(${index}, '')"
+                                autocomplete="off"
+                            >
+                            <div id="cat-dropdown-${index}" 
+                                class="hidden absolute z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -180,6 +192,40 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
+        function handleCategorySearch(index, prefix) {
+            const dropdown = document.getElementById(`cat-dropdown-${index}`);
+
+            // Query our Trie! O(M) time complexity.
+            let matches = prefix === '' ? categoryTrie.searchPrefix('') : categoryTrie.searchPrefix(prefix);
+
+            dropdown.innerHTML = ''; // Clear previous results
+
+            if (matches.length === 0) {
+                dropdown.innerHTML = `<div class="p-2 text-sm text-gray-500">No categories found</div>`;
+            } else {
+                matches.forEach(match => {
+                    const btn = document.createElement('button');
+                    btn.className = "block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50";
+                    btn.innerText = match.name;
+
+                    btn.onclick = function () {
+                        parsedData[index].categoryId = match.id;
+                        parsedData[index].categoryName = match.name;
+                        document.getElementById(`cat-input-${index}`).value = match.name;
+                        dropdown.classList.add('hidden');
+                    };
+                    dropdown.appendChild(btn);
+                });
+            }
+            dropdown.classList.remove('hidden');
+        }
+
+        // Close dropdowns if the user clicks elsewhere
+        document.addEventListener('click', function (event) {
+            if (event.target.tagName.toLowerCase() !== 'input') {
+                document.querySelectorAll('[id^="cat-dropdown-"]').forEach(dd => dd.classList.add('hidden'));
+            }
+        });
     </script>
 </body>
 

@@ -4,6 +4,7 @@ from pypdf import PdfReader
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 import requests
 
 
@@ -13,6 +14,7 @@ from pre_processor import extract_phonepe_data, pre_process_merchant
 from classifier import classify_merchant_local
 
 app = FastAPI(title="PhonePe AI Parser (Production Edition)")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request, userId: str = None):
