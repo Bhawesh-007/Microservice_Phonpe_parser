@@ -7,8 +7,11 @@ def pre_process_merchant(merchant: str) -> int:
     merchant_upper = merchant.upper()
     
     # Tier 1: Dictionary Match
+    # Word-boundary match rather than plain substring: a naive `key in merchant_upper`
+    # check lets short keys like "VI" (Vodafone-Idea) false-positive on any merchant
+    # that merely contains "VI" as a substring (e.g. "DEVI STORES", "NAVIN KUMAR").
     for key, cat_id in KNOWN_MERCHANTS.items():
-        if key in merchant_upper:
+        if re.search(rf"\b{re.escape(key)}\b", merchant_upper):
             return cat_id
             
     # Tier 2: Heuristic Personal Name Check

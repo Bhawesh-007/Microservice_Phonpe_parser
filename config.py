@@ -1,15 +1,6 @@
-from requests import request
 import os
 import json
-import requests
-def fetch_categories():
-    try:
-        response = requests.get("http://localhost:8080/api/categories", timeout=5)
-        if response.status_code==200:
-            return response.json()
-    except Exception as e:
-        print(f"Cant fetch from the api fallback to local json file")
-    return load_json_config(filepath = 'categories.json ' , default_data={"Uncategorized" : 9})
+
 def load_json_config(filepath : str , default_data : dict)-> dict:
 
     if os.path.exists(filepath):
@@ -21,6 +12,13 @@ def load_json_config(filepath : str , default_data : dict)-> dict:
     else:
         print("file not found using defaults")
     return default_data
-CATEGORY_ID_MAP = fetch_categories()
-CATEGORY_POOL = list(CATEGORY_ID_MAP.keys())   
+
+# Boot backend resolves categories per-user by name, not by this id map,
+# so the map only needs to stay internally consistent (id lookups on this
+# process) rather than in sync with any particular user's DB ids.
+CATEGORY_ID_MAP = load_json_config(filepath='categories.json', default_data={"Uncategorized": 7})
+CATEGORY_POOL = list(CATEGORY_ID_MAP.keys())
+# Reverse lookup (id -> name) built once, instead of re-scanning CATEGORY_ID_MAP
+# on every transaction to turn a category id back into its name.
+CATEGORY_NAME_BY_ID = {cat_id: name for name, cat_id in CATEGORY_ID_MAP.items()}
 KNOWN_MERCHANTS = load_json_config(filepath='known_merchants.json', default_data={})
