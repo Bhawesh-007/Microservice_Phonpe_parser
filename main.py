@@ -1,4 +1,5 @@
 import io
+import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
@@ -13,9 +14,11 @@ from config import CATEGORY_ID_MAP, CATEGORY_NAME_BY_ID
 from pre_processor import extract_phonepe_data, pre_process_merchant
 from classifier import classify_merchant_local
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 app = FastAPI(title="PhonePe AI Parser (Production Edition)")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request, userId: str = None):
     # Renders the HTML page and passes the userId into the frontend
@@ -90,4 +93,4 @@ async def process_statement(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
