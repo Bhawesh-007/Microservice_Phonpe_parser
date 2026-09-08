@@ -59,7 +59,7 @@
                 </table>
             </div>
             <div class="p-6 bg-gray-50 text-right border-t border-gray-100">
-                <button onclick="downloadJSON()"
+                <button onclick="approveAndDownload()"
                     class="px-6 py-3 bg-gray-900 hover:bg-black text-white rounded-lg font-medium shadow-md transition">
                     Approve & Download JSON
                 </button>
@@ -71,6 +71,7 @@
         // Get the categories mapped directly from Python!
         // We use Jinja's tojson filter to make it a valid JavaScript object.
         const categoriesMap = {{ categories | tojson | safe }};
+        const USER_ID = {{ userId | tojson | safe }};   // injected by Jinja from Spring Boot
         let parsedData = [];
         const categoryTrie = new Trie();
         for (const [catName, catId] of Object.entries(categoriesMap)) {
@@ -169,23 +170,37 @@
             parsedData[index].categoryName = newName;
         }
 
-        // Create a downloadable JSON file containing the approved data
-        function downloadJSON() {
+        // Approve: save confirmed categories to cache, then download JSON
+        async function approveAndDownload() {
             if (parsedData.length === 0) {
-                alert("No data to download!");
+                alert("No data to approve!");
                 return;
             }
 
-            // Convert our modified data array back into a pretty string
+            // Build the minimal payload the approve endpoint needs
+            const transactions = parsedData.map(txn => ({
+                merchantName: txn.merchantName,
+                categoryName: txn.categoryName
+            }));
+
+            // POST to /parser/approve so Redis + Spring Boot cache get updated
+            try {
+                await fetch('/parser/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: USER_ID, transactions })
+                });
+            } catch (e) {
+                // Non-fatal — still download the file even if the cache call fails
+                console.warn('[Approve] Cache update failed:', e);
+            }
+
+            // Trigger the file download
             const dataStr = JSON.stringify({ "status": "approved", "data": parsedData }, null, 2);
-
-            // Create a Blob (a chunk of file memory)
             const blob = new Blob([dataStr], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-
-            // Create an invisible anchor tag, click it, and delete it
-            const a = document.createElement('a');
-            a.href = url;
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
             a.download = `approved_expenses_${new Date().getTime()}.json`;
             document.body.appendChild(a);
             a.click();

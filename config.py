@@ -1,6 +1,11 @@
 import os
 import json
 
+# ── Redis configuration ───────────────────────────────────────────────────
+REDIS_URL       = os.getenv("REDIS_URL", "redis://localhost:6379")
+# 0 = no expiry; set e.g. 2592000 for a 30-day rolling TTL
+REDIS_CACHE_TTL = int(os.getenv("REDIS_CACHE_TTL_SECONDS", "0"))
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def load_json_config(filepath : str , default_data : dict)-> dict:
@@ -24,3 +29,16 @@ CATEGORY_POOL = list(CATEGORY_ID_MAP.keys())
 # on every transaction to turn a category id back into its name.
 CATEGORY_NAME_BY_ID = {cat_id: name for name, cat_id in CATEGORY_ID_MAP.items()}
 KNOWN_MERCHANTS = load_json_config(filepath=os.path.join(BASE_DIR, 'known_merchants.json'), default_data={})
+
+STANDARD_CATEGORIES = [
+    "Food and Dining",
+    "Groceries",
+    "Shopping",
+    "Transport",
+    "Utilities",
+    "Entertainment",
+    "Health and Medical",
+    "Personal Transfer",
+    "Education",
+    "Uncategorized"
+]

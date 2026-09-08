@@ -1,29 +1,71 @@
-from config import CATEGORY_POOL, CATEGORY_ID_MAP
+import os
+import json
+from groq import Groq
+from dotenv import load_dotenv
+from config import STANDARD_CATEGORIES
 
-# The zero-shot model (~400MB) is only loaded on first actual use, not at
-# module import time. This is the tier-3 fallback - most requests never
-# reach it (tiers 1/2 in pre_processor.py resolve first) - so importing this
-# module, or even starting the whole app, no longer pays the load cost
-# up front (e.g. on every uvicorn --reload).
-_classifier = None
+load_dotenv()
+
+api_key = os.environ.get("GROK_API_KEY")
+if not api_key:
+    print("Warning: GROK_API_KEY environment variable is not set!")
+
+client = Groq(api_key=api_key)
+
+# Using qwen3.8-27b — available on this account, fast and accurate for classification
+GROQ_MODEL = "qwen/qwen3.8-27b"
+
+FEW_SHOT_EXAMPLES = """Examples:
+- "SWIGGY" → "Food and Dining"
+- "UBER" → "Transport"
+- "NETFLIX" → "Entertainment"
+- "APOLLO PHARMACY" → "Health and Medical"
+- "BYJU'S" → "Education"
+- "HDFC BANK CHARGES" → "Uncategorized"
+- "RAHUL SHARMA" → "Personal Transfer"
+- "AMAZON" → "Shopping"
+- "DMART" → "Groceries"
+- "JIO RECHARGE" → "Utilities"
+"""
 
 
-def _get_classifier():
-    global _classifier
-    if _classifier is None:
-        from transformers import pipeline
-        print("Loading local AI model (facebook/bart-large-mnli)...")
-        _classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-        print("AI model loaded and ready.")
-    return _classifier
-
-
-def classify_merchant_local(merchant: str) -> int:
+def classify_merchant_local(merchant: str) -> str:
+    """
+    Classifies a single merchant name using Groq's LLM API.
+    Returns one of the STANDARD_CATEGORIES strings.
+    """
     try:
-        clf = _get_classifier()
-        result = clf(merchant, candidate_labels=CATEGORY_POOL)
-        top_category = result["labels"][0]
-        return CATEGORY_ID_MAP.get(top_category, CATEGORY_ID_MAP.get("Uncategorized", 7))
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        f"You are a financial categorization AI for an Indian expense tracker. "
+                        f"Your ONLY job is to classify merchant names into one of these categories: "
+                        f"{', '.join(STANDARD_CATEGORIES)}.\n\n"
+                        f"{FEW_SHOT_EXAMPLES}"
+                        f"Rules:\n"
+                        f"1. Reply with ONLY the exact category name. No punctuation, no explanation.\n"
+                        f"2. If unsure, reply with 'Uncategorized'."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Merchant: {merchant}"
+                }
+            ],
+            temperature=0.0,
+            max_tokens=10,       # Category names are short — no need for more tokens
+        )
+
+        predicted = response.choices[0].message.content.strip()
+
+        # Validate the response is one of our allowed categories
+        if predicted in STANDARD_CATEGORIES:
+            return predicted
+        return "Uncategorized"
+
     except Exception as e:
-        print(f"Local classification failed for '{merchant}': {str(e)}")
-        return CATEGORY_ID_MAP.get("Uncategorized", 7)
+        print(f"Groq classification failed for '{merchant}': {str(e)}")
+        return "Uncategorized"

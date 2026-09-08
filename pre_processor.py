@@ -3,56 +3,73 @@ from datetime import datetime
 from typing import List, Dict, Any
 from config import KNOWN_MERCHANTS, CATEGORY_ID_MAP
 
-def pre_process_merchant(merchant: str) -> int:
+def pre_process_merchant(merchant: str) -> str:
     merchant_upper = merchant.upper()
     
     # Tier 1: Dictionary Match
-    # Word-boundary match rather than plain substring: a naive `key in merchant_upper`
-    # check lets short keys like "VI" (Vodafone-Idea) false-positive on any merchant
-    # that merely contains "VI" as a substring (e.g. "DEVI STORES", "NAVIN KUMAR").
     for key, cat_id in KNOWN_MERCHANTS.items():
         if re.search(rf"\b{re.escape(key)}\b", merchant_upper):
-            return cat_id
+            # Return the string name from the static map as fallback, or the ID if we don't have it
+            from config import CATEGORY_NAME_BY_ID
+            return CATEGORY_NAME_BY_ID.get(cat_id, "Uncategorized")
             
-    # Tier 2: Heuristic Personal Name Check
-    business_suffixes = ["LTD", "PVT", "ENTERPRISE", "INFOCOMM", "STORE", "MART", "CAFE", "UNIVERSITY", "UPOS", "COMMUNICATION"]
-    
-    if not any(biz in merchant_upper for biz in business_suffixes):
-        if len(merchant_upper.split()) <= 3:
-            return CATEGORY_ID_MAP.get("Personal Transfer", 8)
-            
-    return None # Proceed to AI
+    return None  # Proceed to AI (Groq)
 
 def extract_phonepe_data(text: str) -> List[Dict[str, Any]]:
-    dates = re.findall(r"([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})", text)
-    times = re.findall(r"(\d{1,2}:\d{2}\s+(?:am|pm))", text.lower())
-    merchants = re.findall(r"(?:Paid to|Payment to)\s+([^\r\n\"]+)", text)
-    tx_ids = re.findall(r"Transaction ID\s+([A-Z0-9]+)", text)
-    
-    amounts_raw = re.findall(r"(?:Rs\.|₹)\s*([\d,]+(?:\.\d{2})?)", text)
-    amounts = [float(amt.replace(",", "")) for amt in amounts_raw]
+    """
+    Extracts debit transactions from a PhonePe statement PDF text.
+
+    Strategy: locate every Transaction ID, then search ONLY the surrounding
+    block of text for that transaction's date, time, merchant, amount, and
+    type.  This avoids the index-desync bug that occurred when 5 independent
+    regex lists were zipped together and credits were skipped mid-list.
+    """
+
+    # Split text into per-transaction blocks on "Transaction ID"
+    blocks = re.split(r"(?=Transaction ID\s+[A-Z0-9]+)", text)
 
     parsed_transactions = []
-    for i in range(len(tx_ids)):
-        try:
-            merchant = merchants[i].strip() if i < len(merchants) else "Unknown Vendor"
-            amount = amounts[i] if i < len(amounts) else 0.0
-            date_part = dates[i] if i < len(dates) else datetime.now().strftime("%b %d, %Y")
-            time_part = times[i] if i < len(times) else "12:00 am"
-            tx_id = tx_ids[i]
-            
-            try:
-                datetime_obj = datetime.strptime(f"{date_part} {time_part.upper()}", "%b %d, %Y %I:%M %p")
-                iso_timestamp = datetime_obj.isoformat()
-            except ValueError:
-                iso_timestamp = datetime.now().isoformat()
 
-            parsed_transactions.append({
-                "note": f"{merchant} (Txn: {tx_id})",
-                "raw_merchant": merchant, 
-                "amount": amount,
-                "timestamp": iso_timestamp
-            })
-        except IndexError:
+    for block in blocks:
+        # Must have a Transaction ID to be a valid block
+        tx_match = re.search(r"Transaction ID\s+([A-Z0-9]+)", block)
+        if not tx_match:
             continue
+        tx_id = tx_match.group(1)
+
+        # Skip credited transactions
+        type_match = re.search(r"\b(DEBIT|CREDIT)\b", block, re.IGNORECASE)
+        if type_match and type_match.group(1).upper() == "CREDIT":
+            continue
+
+        # Merchant name
+        merchant_match = re.search(r"(?:Paid to|Payment to)\s+([^\r\n\"]+)", block)
+        merchant = merchant_match.group(1).strip() if merchant_match else "Unknown Vendor"
+
+        # Amount  (first Rs./₹ figure in this block)
+        amount_match = re.search(r"(?:Rs\.|\u20b9)\s*([\d,]+(?:\.\d{2})?)", block)
+        amount = float(amount_match.group(1).replace(",", "")) if amount_match else 0.0
+
+        # Date
+        date_match = re.search(r"([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})", block)
+        date_part = date_match.group(1) if date_match else datetime.now().strftime("%b %d, %Y")
+
+        # Time
+        time_match = re.search(r"(\d{1,2}:\d{2}\s+(?:am|pm))", block, re.IGNORECASE)
+        time_part = time_match.group(1) if time_match else "12:00 am"
+
+        try:
+            datetime_obj  = datetime.strptime(f"{date_part} {time_part.upper()}", "%b %d, %Y %I:%M %p")
+            iso_timestamp = datetime_obj.isoformat()
+        except ValueError:
+            iso_timestamp = datetime.now().isoformat()
+
+        parsed_transactions.append({
+            "note":         f"{merchant} (Txn: {tx_id})",
+            "raw_merchant": merchant,
+            "amount":       amount,
+            "timestamp":    iso_timestamp,
+            "tx_type":      "DEBIT",
+        })
+
     return parsed_transactions

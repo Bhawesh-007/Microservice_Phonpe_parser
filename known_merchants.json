@@ -1,7 +1,6 @@
 {
     "JIO": 3,
     "AIRTEL": 3,
-    "VI": 3,
     "DMART": 4,
     "RELIANCE FRESH": 4,
     "INDIAN RAILWAYS": 2,
@@ -9,16 +8,12 @@
     "PMPML": 2,
     "PUNE MAHANAGAR": 2,
     "UBER": 2,
-    "OLA": 2,
     "SWIGGY": 1,
     "ZOMATO": 1,
     "EAGLE CAFETERIA": 1,
     "MCDONALDS": 1,
     "GOOGLE": 6,
     "NETFLIX": 6,
-    "UNIVERSITY": 10,
-    "COLLEGE": 10,
     "UJWALA MANOJ UDAWANT": 10,
-    "KABITA THAPA": 4,
-    "INSTITUTE": 10
+    "KABITA THAPA": 4
 }
